@@ -86,9 +86,9 @@ function rememberLedger(id, title) {
 }
 
 // ───────────────────────── 라우팅 ─────────────────────────
-const m = location.pathname.match(/^\/l\/([0-9a-f-]{36})\/?$/i);
+const m = location.pathname.match(/^\/l\/([0-9a-f-]{36})(?:\/(list))?\/?$/i);
 const ledgerId = m ? m[1].toLowerCase() : null;
-if (ledgerId && UUID_RE.test(ledgerId)) renderLedger(ledgerId);
+if (ledgerId && UUID_RE.test(ledgerId)) renderLedger(ledgerId, m[2] ? "list" : "reg");
 else if (ledgerId) renderMessage("주소가 올바르지 않아요", "받은 링크 전체를 다시 확인해 주세요.");
 else renderHome();
 
@@ -154,7 +154,7 @@ function renderHome() {
 }
 
 // ───────────────────────── 장부 화면 ─────────────────────────
-function renderLedger(lid) {
+function renderLedger(lid, initialView = "reg") {
   const ledgerRef = doc(db, "ledgers", lid);
   const entriesCol = collection(db, "ledgers", lid, "entries");
   const entryRef = (no) => doc(db, "ledgers", lid, "entries", String(no));
@@ -222,7 +222,10 @@ function renderLedger(lid) {
     if (b.dataset.go === "settings") return openSettingsSheet();
     showView(b.dataset.go);
   });
-  function showView(v) {
+  // 화면 전환 시 주소도 바꿈 → 새로고침해도 같은 화면 유지, 뒤로가기로 이전 화면
+  const viewPath = (v) => `/l/${lid}${v === "list" ? "/list" : ""}`;
+  function showView(v, { push = true } = {}) {
+    if (push && location.pathname !== viewPath(v)) history.pushState({ view: v }, "", viewPath(v));
     S.tab = v;
     menu.querySelectorAll("[data-go]").forEach((x) => x.classList.toggle("on", x.dataset.go === v));
     $("#tab-reg").hidden = v !== "reg";
@@ -230,6 +233,12 @@ function renderLedger(lid) {
     if (v === "list") { renderList(); renderListSum(); }
     window.scrollTo(0, 0);
   }
+  window.addEventListener("popstate", () => {
+    if (!$("#sheet").hidden) { closeSheet(true); return; } // 뒤로가기 = 창 닫기
+    const v = location.pathname.endsWith("/list") ? "list" : "reg";
+    if (v !== S.tab) showView(v, { push: false });
+  });
+  showView(initialView, { push: false });
 
   // ── 목록 도구
   $("#q").addEventListener("input", (e) => { S.q = e.target.value.trim(); renderList(); });
@@ -731,15 +740,19 @@ function renderLedger(lid) {
         <div class="sheet-head"><h2>${esc(title)}</h2><button class="icon-btn" data-close aria-label="닫기">✕</button></div>
         <div class="sheet-body"></div>
       </div>`;
+    // 창을 새로 열 때만 기록 추가 → 안드로이드 뒤로가기로 창만 닫힘 (연속으로 다음 봉투를 열 땐 추가 안 함)
+    if (sheet.hidden) history.pushState({ ...(history.state || {}), sheet: true }, "", location.pathname);
     sheet.hidden = false;
     document.body.classList.add("locked");
-    sheet.querySelectorAll("[data-close]").forEach((x) => x.addEventListener("click", closeSheet));
+    sheet.querySelectorAll("[data-close]").forEach((x) => x.addEventListener("click", () => closeSheet()));
     return $(".sheet-body", sheet);
   }
-  function closeSheet() {
+  function closeSheet(fromPop = false) {
+    if ($("#sheet").hidden) return;
     $("#sheet").hidden = true;
     $("#sheet").innerHTML = "";
     document.body.classList.remove("locked");
+    if (!fromPop && history.state?.sheet) history.back(); // 창 열 때 넣은 기록 제거
   }
 
   function openEditSheet(no) {
