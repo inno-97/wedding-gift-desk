@@ -1,0 +1,7 @@
+node_modules/
+.firebase/
+*-debug.log
+.DS_Store
+
+# 실명이 들어간 현장 운영 PDF는 로컬에만 보관
+docs/
